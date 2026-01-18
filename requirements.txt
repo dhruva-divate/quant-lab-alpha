@@ -6,6 +6,7 @@ statsmodels==0.14.5
 scikit-learn==1.8.0
 pyportfolioopt==1.5.6
 cvxpy==1.7.5
+hmmlearn>=0.3.0
 
 # Data Retrieval & APIs
 yfinance==0.2.66
