@@ -183,6 +183,7 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
     AVG_BLOCK_SIZE = config.get("BLOCK_SIZE", 60)
     SEED = config.get("SEED", None) # Set to 42 for testing
     colors = get_theme_colors(is_dark)
+    synthetic_warning = False
 
     # --- CLEAR ROOT AND SETUP MAIN FRAME ---
     for child in root.winfo_children():
@@ -299,9 +300,16 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
         2. Applying fitted factor loadings (betas) from the model
         3. Synthetic return = RF + beta * factors (no alpha, no residuals)
         """
+        
+        nonlocal synthetic_warning
         n_existing = len(combined)
         n_needed = max(0, N_MONTHS - n_existing)
         
+        if n_existing < 0.75 * N_MONTHS:  
+            synthetic_warning = True 
+        else:
+            synthetic_warning = False
+
         if n_needed > 0:
             # 1. Fetch extended FF5 factor history
             # Get the earliest date in our combined data
@@ -620,7 +628,24 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
             ax.yaxis.set_major_formatter(mtick.StrMethodFormatter(f'{portfolio_obj.base_currency} {{x:,.0f}}'))
             padding = max(start_capital_var.get(), np.max(p95_path)) * 0.1
             ax.set_ylim(np.min(p5_path) - padding, np.max(p95_path) + padding)
-            ax.set_title(f"Monte Carlo: {strat_var.get()}", loc='center', fontweight='bold')
+            ax.set_title(f"Monte Carlo: {strat_var.get()}", pad=25, fontweight='bold', fontsize=12)
+            # Calculate a dynamic subtitle based on the data status
+            if synthetic_warning:
+                status_msg = "⚠ CAUTION: Low Historical Data Coverage (Using Factor-Synthetic Extensions)"
+                status_color = "#d62728"  # A professional dark red
+            else:
+                # A more descriptive "OK" status
+                status_msg = "✓ VALIDATED: High Historical Data Coverage"
+                status_color = "#2ca02c"  # A professional forest green
+
+            # Place it just below the main title (y=1.02 is usually just above, 0.92 is inside)
+            # Using transform=ax.transAxes ensures (0.5, 0.92) is always relative to the plot area
+            ax.text(0.5, 1.02, status_msg, 
+                    transform=ax.transAxes,
+                    ha='center', va='center',
+                    fontsize=9, color=status_color,
+                    fontweight='semibold',
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
             ax.set_xlabel("Years in Retirement")
             ax.legend(loc="upper left")
             ax.grid(alpha=0.3)
