@@ -183,6 +183,7 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
     AVG_BLOCK_SIZE = config.get("BLOCK_SIZE", 60)
     SEED = config.get("SEED", None) # Set to 42 for testing
     colors = get_theme_colors(is_dark)
+    synthetic_warning = False
 
     # --- CLEAR ROOT AND SETUP MAIN FRAME ---
     for child in root.winfo_children():
@@ -292,53 +293,87 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
     # --- HELPER: EXTEND RETURNS DATA ---
     def extend_returns_data(N_MONTHS):
         """
-        Generate extended returns matrix deterministically. 
-        Uses a one-time fit of factor data to extend history.
+        Generate extended returns matrix with proper synthetic pre-history.
+        
+        Synthetic returns are generated DETERMINISTICALLY by:
+        1. Using historical FF5 factor data going back in time
+        2. Applying fitted factor loadings (betas) from the model
+        3. Synthetic return = RF + beta * factors (no alpha, no residuals)
         """
+        
+        nonlocal synthetic_warning
         n_existing = len(combined)
         n_needed = max(0, N_MONTHS - n_existing)
         
-        factor_returns = combined[factor_cols].values
-        
-        if n_needed > 0:
-            # 1. Deterministic Factor Extension
-            # Instead of bootstrap, we tile the factor returns to reach n_needed
-            # This ensures if you run it 10M times, the 'extended' factor set is identical
-            indices = np.arange(n_needed) % n_existing
-            synth_factors = factor_returns[indices]
-            
-            # 2. Use the Model to Extend (Predict returns without residuals)
-            # synth_factor_pred shape: (n_needed, n_assets)
-            synth_factor_pred = sm.add_constant(synth_factors) @ beta_matrix
+        if n_existing < 0.75 * N_MONTHS:  
+            synthetic_warning = True 
+        else:
+            synthetic_warning = False
 
-            # 3. Construct Extended Returns
-            # Synthetic (Model Fit) followed by Historical (Actual Data)
+        if n_needed > 0:
+            # 1. Fetch extended FF5 factor history
+            # Get the earliest date in our combined data
+            earliest_date = combined.index[0]
+            
+            # Calculate how far back we need to go
+            extended_start = earliest_date - pd.DateOffset(months=n_needed)
+            
+            # Fetch FF5 factors for the extended period
+            ff_extended = fetch_ff5_monthly(region=portfolio_obj.factor_region)
+            ff_extended.index = pd.to_datetime(ff_extended.index).to_period('M').to_timestamp('M')
+            
+            # Get the pre-history period (before our combined data starts)
+            pre_history = ff_extended[ff_extended.index < earliest_date].tail(n_needed)
+            
+            if len(pre_history) < n_needed:
+                raise ValueError(
+                    f"Not enough FF5 factor history. Need {n_needed} months, "
+                    f"but only {len(pre_history)} available before {earliest_date}"
+                )
+            
+            # 2. Generate synthetic asset returns using fitted betas
+            synth_asset_returns = np.zeros((n_needed, len(tickers)))
+            
+            for i, ticker in enumerate(tickers):
+                # Get fitted betas: [const, Mkt-RF, SMB, HML, RMW, CMA]
+                beta_i = beta_matrix[:, i]
+                
+                # Build X matrix: [1, Mkt-RF, SMB, HML, RMW, CMA]
+                X_synth = sm.add_constant(pre_history[factor_cols].values)
+                
+                # Synthetic return = alpha + beta * factors + RF
+                # Since we assume no alpha in extension: return = beta * factors + RF
+                synth_asset_returns[:, i] = X_synth @ beta_i + pre_history['RF'].values
+            
+            # 3. Combine synthetic (past) with historical (recent) data
             ext_rets = {
-                t: np.concatenate([synth_factor_pred[:, i], combined[t].values])
-                for i, t in enumerate(tickers)
+                ticker: np.concatenate([synth_asset_returns[:, i], combined[ticker].values])
+                for i, ticker in enumerate(tickers)
             }
             returns_extended_df = pd.DataFrame(ext_rets)
-
-            # --- Diagnostic data setup ---
-            hist_port_returns = combined[tickers].values @ weights
-            synth_port_returns = synth_factor_pred @ weights
             
-            # Create a deterministic index for the synthetic past
-            synth_index = pd.date_range(end=combined.index[0] - pd.offsets.MonthEnd(1), 
-                                        periods=n_needed, freq='ME')
+            # --- Diagnostic Data Setup ---
+            hist_port_returns = combined[tickers].values @ weights
+            synth_port_returns = synth_asset_returns @ weights
+            
+            # Create index for synthetic past
+            synth_index = pre_history.index
+            
+            # Combined prices
             combined_index = synth_index.append(combined.index)
             combined_returns = np.concatenate([synth_port_returns, hist_port_returns])
             combined_prices = 100 * np.cumprod(1 + combined_returns)
             
-            # Factor fit for visualization on the historical part
+            # Factor fit for visualization (on historical part only)
             X_factors_hist = sm.add_constant(combined[factor_cols])
             port_excess = hist_port_returns - combined['RF'].values
             port_model = sm.OLS(port_excess, X_factors_hist).fit()
             port_fit_returns = port_model.predict(X_factors_hist) + combined['RF'].values
             
-            price_at_hist_start = combined_prices[n_needed - 1]
+            # Scale fitted prices to match at boundary
+            price_at_hist_start = combined_prices[n_needed - 1] if n_needed > 0 else 100
             port_fit_prices = price_at_hist_start * np.cumprod(1 + port_fit_returns)
-
+            
             diagnostic_data = {
                 'combined_index': combined_index,
                 'combined_prices': combined_prices,
@@ -350,9 +385,11 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
                 'synth_port_returns': synth_port_returns,
                 'n_needed': n_needed
             }
+            
         else:
             # Case where existing history is long enough
             returns_extended_df = combined[tickers]
+            
             hist_port_returns = combined[tickers].values @ weights
             X_factors = sm.add_constant(combined[factor_cols])
             port_excess = hist_port_returns - combined['RF'].values
@@ -361,7 +398,7 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
             
             combined_prices = 100 * np.cumprod(1 + hist_port_returns)
             port_fit_prices = 100 * np.cumprod(1 + port_fit_returns)
-
+            
             diagnostic_data = {
                 'combined_index': combined.index,
                 'combined_prices': combined_prices,
@@ -371,17 +408,29 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
                 'hist_port_returns': hist_port_returns,
                 'n_needed': 0
             }
-
-        # Apply FX conversion if needed (Deterministic tiling)
+        
+        # Apply FX conversion if needed
         returns_matrix = returns_extended_df.values
+        
         if portfolio_obj.base_currency != "USD":
             if n_needed > 0:
-                fx_indices = np.arange(len(returns_matrix)) % len(fx_returns_hist)
-                fx_extended = fx_returns_hist[fx_indices]
+                # Need to fetch FX data for the extended period too
+                fx_ticker = f"USD{portfolio_obj.base_currency}=X"
+                fx_start = pre_history.index[0]
+                fx_df = yf.download(fx_ticker, start=fx_start, end=returns_df.index[-1], 
+                                progress=False, auto_adjust=True)
+                if isinstance(fx_df.columns, pd.MultiIndex):
+                    fx_df.columns = [col[0] for col in fx_df.columns]
+                fx_monthly = fx_df['Close'].resample('ME').last().pct_change().fillna(0)
+                fx_extended_full = fx_monthly.reindex(
+                    pre_history.index.append(combined.index), 
+                    method='ffill'
+                ).fillna(0).values
             else:
-                fx_extended = fx_returns_hist[:N_MONTHS]
-            returns_matrix = (1 + returns_matrix) * (1 + fx_extended[:, np.newaxis]) - 1
-
+                fx_extended_full = fx_returns_hist[:N_MONTHS]
+            
+            returns_matrix = (1 + returns_matrix) * (1 + fx_extended_full[:, np.newaxis]) - 1
+        
         return returns_matrix, diagnostic_data
 
     # --- CORE: RECOMPUTE SIMULATION ---
@@ -579,7 +628,24 @@ def run_simulation(root, portfolio_obj=None, returns_df=None, config=None, is_da
             ax.yaxis.set_major_formatter(mtick.StrMethodFormatter(f'{portfolio_obj.base_currency} {{x:,.0f}}'))
             padding = max(start_capital_var.get(), np.max(p95_path)) * 0.1
             ax.set_ylim(np.min(p5_path) - padding, np.max(p95_path) + padding)
-            ax.set_title(f"Monte Carlo: {strat_var.get()}", loc='center', fontweight='bold')
+            ax.set_title(f"Monte Carlo: {strat_var.get()}", pad=25, fontweight='bold', fontsize=12)
+            # Calculate a dynamic subtitle based on the data status
+            if synthetic_warning:
+                status_msg = "⚠ CAUTION: Low Historical Data Coverage (Using Factor-Synthetic Extensions)"
+                status_color = "#d62728"  # A professional dark red
+            else:
+                # A more descriptive "OK" status
+                status_msg = "✓ VALIDATED: High Historical Data Coverage"
+                status_color = "#2ca02c"  # A professional forest green
+
+            # Place it just below the main title (y=1.02 is usually just above, 0.92 is inside)
+            # Using transform=ax.transAxes ensures (0.5, 0.92) is always relative to the plot area
+            ax.text(0.5, 1.02, status_msg, 
+                    transform=ax.transAxes,
+                    ha='center', va='center',
+                    fontsize=9, color=status_color,
+                    fontweight='semibold',
+                    bbox=dict(facecolor='white', alpha=0.7, edgecolor='none', pad=1))
             ax.set_xlabel("Years in Retirement")
             ax.legend(loc="upper left")
             ax.grid(alpha=0.3)
