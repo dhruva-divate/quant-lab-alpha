@@ -198,7 +198,6 @@ class WFAResult:
                 }
             return stats
         
-# policy presets per feature request and google
 # Policy presets
 POLICY_PRESETS = {
     'Defensive': [
