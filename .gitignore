@@ -5,3 +5,6 @@ notebooks/comparison_data.ipynb
 notebooks/factor_premium_tests_snapshot_1.ipynb
 test.py
 *:Zone.Identifier__pycache__/
+__pycache__/
+*.pyc
+*.DS_Store

@@ -585,6 +585,7 @@ class PortfolioGUI:
         ttk.Button(frame, text="Correlation Matrix", command=self.run_correlations).grid(row=0, column=2, padx=10)
         ttk.Button(frame, text="Risk Report", command=self.run_risk_report).grid(row=0, column=3, padx=10)
         ttk.Button(frame, text="Run Monte Carlo", command=self.run_monte_carlo).grid(row=0, column=4, padx=10)
+      # ttk.Button(frame, text="Walk-Forward", command=self.run_wfa).grid(row=0, column=5, padx=10)
         
 
     # =============================
@@ -673,7 +674,21 @@ class PortfolioGUI:
             #print(full_error) # Prints to your terminal/console
             #messagebox.showerror("Detailed Error", f"Monte Carlo failed:\n\n{full_error}")
             messagebox.showerror("Error", f"Monte Carlo simulation failed:\n{e}")
+    """
+    def run_wfa(self):
+        try:
+            from src.wfa_analysis import run_wfa_analysis
+            if not self.portfolio_obj.constituents:
+                messagebox.showwarning("No Assets", "Add assets to the portfolio before running Walk-Forward Analysis.")
+                return
 
+            lev, rate = self.get_portfolio_leverage_settings()
+            self.portfolio_obj.apply_leverage(lev, rate)
+            run_wfa_analysis(self.root, self.portfolio_obj, self.is_dark)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Walk-Forward Analysis failed:\n{e}")
+    """
     def _on_close(self):
         """Forces the application to quit and stops background threads."""
         self.root.quit()     # Stop the mainloop
