@@ -124,15 +124,17 @@ class WFAResult:
     complete_equity_curve: pd.Series
     full_returns: pd.Series
     full_regime_labels: pd.Series
+    regime_names: List[str]
+    # buy and hold benchmark 
+    benchmark_equity_curve: pd.Series
+    benchmark_returns: pd.Series
     # per Window results
     in_sample_results: List[BacktestResult] = field(default_factory=list)
     out_sample_results: List[BacktestResult] = field(default_factory=list)
     #transition matrix of regimes (final HMM)
     transition_matrix: Optional[np.ndarray] = None
-    regime_names: List[str]
-    # buy and hold benchmark 
-    benchmark_equity_curve: pd.Series
-    benchmark_returns: pd.Series
+    
+    
 
     #aggregate metrics oos=out of sample
     oos_total_return: float = 0.0
