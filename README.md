@@ -66,9 +66,6 @@ python main.py
 - Re-run simulations to see leveraged outcomes
 
 ---
-### 🌟 Star the Project  
-If you found this project helpful, please consider giving it a ⭐ on GitHub!
----
 
 ### 📁 Example Portfolios Included
 
