@@ -8,8 +8,6 @@ Built on the **Fama–French Five-Factor (FF5) model**, the suite offers **rolli
 
 ## 🎓 Technical Highlights
 
-**For Quantitative Researchers & Portfolio Managers:**
-
 - **Factor Attribution**: FF5 regressions with rolling window analysis reveal time-varying exposures
 - **Robust Optimization**: Ledoit-Wolf shrinkage addresses estimation error in covariance matrices
 - **Realistic Simulation**: Block bootstrap preserves autocorrelation structure vs. i.i.d. sampling
@@ -68,7 +66,7 @@ python main.py
 - Re-run simulations to see leveraged outcomes
 
 ---
-### 🌟 Star the Project
+### 🌟 Star the Project  
 If you found this project helpful, please consider giving it a ⭐ on GitHub!
 ---
 
